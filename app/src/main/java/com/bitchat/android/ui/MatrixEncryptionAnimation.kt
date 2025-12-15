@@ -5,6 +5,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,7 +27,7 @@ private enum class CharacterAnimationState {
  */
 @Composable
 fun shouldAnimateMessage(messageId: String): Boolean {
-    val miningMessages by PoWMiningTracker.miningMessages.collectAsState()
+    val miningMessages by PoWMiningTracker.miningMessages.collectAsStateWithLifecycle()
     return miningMessages.contains(messageId)
 }
 
@@ -74,12 +75,14 @@ object PoWMiningTracker {
 @Composable
 fun MessageWithMatrixAnimation(
     message: com.bitchat.android.model.BitchatMessage,
+    messages: List<com.bitchat.android.model.BitchatMessage> = emptyList(),
     currentUserNickname: String,
     meshService: com.bitchat.android.mesh.BluetoothMeshService,
     colorScheme: androidx.compose.material3.ColorScheme,
     timeFormatter: java.text.SimpleDateFormat,
     onNicknameClick: ((String) -> Unit)?,
     onMessageLongPress: ((com.bitchat.android.model.BitchatMessage) -> Unit)?,
+    onImageClick: ((String, List<String>, Int) -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     val isAnimating = shouldAnimateMessage(message.id)

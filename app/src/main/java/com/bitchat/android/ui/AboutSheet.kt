@@ -1,21 +1,30 @@
 package com.bitchat.android.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.BaselineShift
@@ -23,11 +32,171 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bitchat.android.nostr.NostrProofOfWork
 import com.bitchat.android.nostr.PoWPreferenceManager
-import com.bitchat.android.ui.debug.DebugSettingsSheet
+import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.bitchat.android.R
+import com.bitchat.android.core.ui.component.button.CloseButton
+import com.bitchat.android.net.TorMode
+import com.bitchat.android.net.TorPreferenceManager
+import com.bitchat.android.net.ArtiTorManager
 
 /**
- * About Sheet for bitchat app information
- * Matches the design language of LocationChannelsSheet
+ * Feature row for displaying app capabilities
+ */
+@Composable
+private fun FeatureRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = colorScheme.primary,
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = colorScheme.onSurface.copy(alpha = 0.6f),
+                lineHeight = 18.sp
+            )
+        }
+    }
+}
+
+/**
+ * Theme selection chip with Apple-like styling
+ */
+@Composable
+private fun ThemeChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.red + colorScheme.background.green + colorScheme.background.blue < 1.5f
+    
+    Surface(
+        modifier = modifier,
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = if (selected) {
+            if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D)
+        } else {
+            colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (selected) Color.White else colorScheme.onSurface.copy(alpha = 0.8f)
+            )
+        }
+    }
+}
+
+/**
+ * Unified settings toggle row with icon, title, subtitle, and switch
+ * Apple-like design with proper spacing
+ */
+@Composable
+private fun SettingsToggleRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+    statusIndicator: (@Composable () -> Unit)? = null
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val isDark = colorScheme.background.red + colorScheme.background.green + colorScheme.background.blue < 1.5f
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (enabled) colorScheme.primary else colorScheme.onSurface.copy(alpha = 0.3f),
+            modifier = Modifier.size(22.dp)
+        )
+        
+        Spacer(modifier = Modifier.width(14.dp))
+        
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = if (enabled) colorScheme.onSurface else colorScheme.onSurface.copy(alpha = 0.4f)
+                )
+                statusIndicator?.invoke()
+            }
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = colorScheme.onSurface.copy(alpha = if (enabled) 0.6f else 0.3f),
+                lineHeight = 16.sp
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(16.dp))
+        
+        Switch(
+            checked = checked,
+            onCheckedChange = { if (enabled) onCheckedChange(it) },
+            enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D),
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = colorScheme.surfaceVariant
+            )
+        )
+    }
+}
+
+/**
+ * Apple-like About/Settings Sheet with high-quality design
+ * Professional UX optimized for checkout scenarios
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,500 +216,468 @@ fun AboutSheet(
             "1.0.0" // fallback version
         }
     }
-    
-    // Bottom sheet state
 
     val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = false
+        skipPartiallyExpanded = true
     )
-    
-    // Color scheme matching LocationChannelsSheet
+
+    val lazyListState = rememberLazyListState()
+    val isScrolled by remember {
+        derivedStateOf {
+            lazyListState.firstVisibleItemIndex > 0 || lazyListState.firstVisibleItemScrollOffset > 0
+        }
+    }
+    val topBarAlpha by animateFloatAsState(
+        targetValue = if (isScrolled) 0.98f else 0f,
+        label = "topBarAlpha"
+    )
+
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.red + colorScheme.background.green + colorScheme.background.blue < 1.5f
-    val standardBlue = Color(0xFF007AFF) // iOS blue
-    val standardGreen = if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D) // iOS green
     
     if (isPresented) {
         ModalBottomSheet(
+            modifier = modifier.statusBarsPadding(),
             onDismissRequest = onDismiss,
             sheetState = sheetState,
-            modifier = modifier
+            containerColor = colorScheme.background,
+            dragHandle = null
         ) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Header
-                item {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.Bottom
+            Box(modifier = Modifier.fillMaxWidth()) {
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 80.dp, bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    // Header Section - App Identity
+                    item(key = "header") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = "bitchat",
-                                fontSize = 18.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Medium,
-                                color = colorScheme.onSurface
+                                text = stringResource(R.string.app_name),
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 28.sp,
+                                    letterSpacing = 1.sp
+                                ),
+                                color = colorScheme.onBackground
                             )
-                            
                             Text(
-                                text = "v$versionName",
-                                fontSize = 11.sp,
+                                text = stringResource(R.string.version_prefix, versionName ?: ""),
+                                fontSize = 13.sp,
                                 fontFamily = FontFamily.Monospace,
-                                color = colorScheme.onSurface.copy(alpha = 0.5f),
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    baselineShift = BaselineShift(0.1f)
-                                )
+                                color = colorScheme.onBackground.copy(alpha = 0.5f)
+                            )
+                            Text(
+                                text = stringResource(R.string.about_tagline),
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = colorScheme.onBackground.copy(alpha = 0.6f),
+                                modifier = Modifier.padding(top = 4.dp)
                             )
                         }
-                        
-                        Text(
-                            text = "decentralized mesh messaging with end-to-end encryption",
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = colorScheme.onSurface.copy(alpha = 0.7f)
-                        )
                     }
-                }
-                
-                // Features section
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        FeatureCard(
-                            icon = Icons.Filled.Bluetooth,
-                            iconColor = standardBlue,
-                            title = "offline mesh chat",
-                            description = "communicate directly via bluetooth le without internet or servers. messages relay through nearby devices to extend range.",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        
-                        FeatureCard(
-                            icon = Icons.Filled.Public,
-                            iconColor = standardGreen,
-                            title = "online geohash channels",
-                            description = "connect with people in your area using geohash-based channels. extend the mesh using public internet relays.",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        
-                        FeatureCard(
-                            icon = Icons.Filled.Lock,
-                            iconColor = if (isDark) Color(0xFFFFD60A) else Color(0xFFF5A623),
-                            title = "end-to-end encryption",
-                            description = "private messages are encrypted. channel messages are public.",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
 
-                // Appearance section (theme toggle)
-                item {
-                    val themePref by com.bitchat.android.ui.theme.ThemePreferenceManager.themeFlow.collectAsState()
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "appearance",
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium,
-                            color = colorScheme.onSurface.copy(alpha = 0.8f)
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = themePref.isSystem,
-                                onClick = { com.bitchat.android.ui.theme.ThemePreferenceManager.set(context, com.bitchat.android.ui.theme.ThemePreference.System) },
-                                label = { Text("system", fontFamily = FontFamily.Monospace) }
+                    // Features Section - Grouped Card
+                    item(key = "features") {
+                        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                            Text(
+                                text = stringResource(R.string.about_appearance).uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colorScheme.onBackground.copy(alpha = 0.5f),
+                                letterSpacing = 0.5.sp,
+                                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
                             )
-                            FilterChip(
-                                selected = themePref.isLight,
-                                onClick = { com.bitchat.android.ui.theme.ThemePreferenceManager.set(context, com.bitchat.android.ui.theme.ThemePreference.Light) },
-                                label = { Text("light", fontFamily = FontFamily.Monospace) }
-                            )
-                            FilterChip(
-                                selected = themePref.isDark,
-                                onClick = { com.bitchat.android.ui.theme.ThemePreferenceManager.set(context, com.bitchat.android.ui.theme.ThemePreference.Dark) },
-                                label = { Text("dark", fontFamily = FontFamily.Monospace) }
-                            )
-                        }
-                    }
-                }
-
-                // Proof of Work section
-                item {
-                    val context = LocalContext.current
-                    
-                    // Initialize PoW preferences if not already done
-                    LaunchedEffect(Unit) {
-                        PoWPreferenceManager.init(context)
-                    }
-                    
-                    val powEnabled by PoWPreferenceManager.powEnabled.collectAsState()
-                    val powDifficulty by PoWPreferenceManager.powDifficulty.collectAsState()
-                    
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "proof of work",
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium,
-                            color = colorScheme.onSurface.copy(alpha = 0.8f)
-                        )
-                        
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            FilterChip(
-                                selected = !powEnabled,
-                                onClick = { PoWPreferenceManager.setPowEnabled(false) },
-                                label = { Text("pow off", fontFamily = FontFamily.Monospace) }
-                            )
-                            FilterChip(
-                                selected = powEnabled,
-                                onClick = { PoWPreferenceManager.setPowEnabled(true) },
-                                label = { 
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("pow on", fontFamily = FontFamily.Monospace)
-                                        // Show current difficulty
-                                        if (powEnabled) {
-                                            Surface(
-                                                color = if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D),
-                                                shape = RoundedCornerShape(50)
-                                            ) { Box(Modifier.size(8.dp)) }
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                        
-                        Text(
-                            text = "add proof of work to geohash messages for spam deterrence.",
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                        
-                        // Show difficulty slider when enabled
-                        if (powEnabled) {
-                            Column(
+                            Surface(
                                 modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                color = colorScheme.surface,
+                                shape = RoundedCornerShape(16.dp)
                             ) {
-                                Text(
-                                    text = "difficulty: $powDifficulty bits (~${NostrProofOfWork.estimateMiningTime(powDifficulty)})",
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = colorScheme.onSurface.copy(alpha = 0.7f)
-                                )
-                                
-                                Slider(
-                                    value = powDifficulty.toFloat(),
-                                    onValueChange = { PoWPreferenceManager.setPowDifficulty(it.toInt()) },
-                                    valueRange = 0f..32f,
-                                    steps = 33, // 33 discrete values (0-32)
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D),
-                                        activeTrackColor = if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D)
+                                Column {
+                                    FeatureRow(
+                                        icon = Icons.Filled.Bluetooth,
+                                        title = stringResource(R.string.about_offline_mesh_title),
+                                        subtitle = stringResource(R.string.about_offline_mesh_desc)
                                     )
-                                )
-                                
-                                // Show difficulty description
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    color = colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                                    shape = RoundedCornerShape(8.dp)
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 56.dp),
+                                        color = colorScheme.outline.copy(alpha = 0.12f)
+                                    )
+                                    FeatureRow(
+                                        icon = Icons.Default.Public,
+                                        title = stringResource(R.string.about_online_geohash_title),
+                                        subtitle = stringResource(R.string.about_online_geohash_desc)
+                                    )
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 56.dp),
+                                        color = colorScheme.outline.copy(alpha = 0.12f)
+                                    )
+                                    FeatureRow(
+                                        icon = Icons.Default.Lock,
+                                        title = stringResource(R.string.about_e2e_title),
+                                        subtitle = stringResource(R.string.about_e2e_desc)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Appearance Section
+                    item(key = "appearance") {
+                        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                            Text(
+                                text = "THEME",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colorScheme.onBackground.copy(alpha = 0.5f),
+                                letterSpacing = 0.5.sp,
+                                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
+                            )
+                            val themePref by com.bitchat.android.ui.theme.ThemePreferenceManager.themeFlow.collectAsState()
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = colorScheme.surface,
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Text(
-                                            text = "difficulty $powDifficulty requires ~${NostrProofOfWork.estimateWork(powDifficulty)} hash attempts",
-                                            fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = colorScheme.onSurface.copy(alpha = 0.7f)
-                                        )
-                                        Text(
-                                            text = when {
-                                                powDifficulty == 0 -> "no proof of work required"
-                                                powDifficulty <= 8 -> "very low - minimal spam protection"
-                                                powDifficulty <= 12 -> "low - basic spam protection"
-                                                powDifficulty <= 16 -> "medium - good spam protection"
-                                                powDifficulty <= 20 -> "high - strong spam protection"
-                                                powDifficulty <= 24 -> "very high - may cause delays"
-                                                else -> "extreme - significant computation required"
-                                            },
-                                            fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = colorScheme.onSurface.copy(alpha = 0.6f)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Network (Tor) section
-                item {
-                    val ctx = LocalContext.current
-                    val torMode = remember { mutableStateOf(com.bitchat.android.net.TorPreferenceManager.get(ctx)) }
-                    val torStatus by com.bitchat.android.net.TorManager.statusFlow.collectAsState()
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "network",
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium,
-                            color = colorScheme.onSurface.copy(alpha = 0.8f)
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            FilterChip(
-                                selected = torMode.value == com.bitchat.android.net.TorMode.OFF,
-                                onClick = {
-                                    torMode.value = com.bitchat.android.net.TorMode.OFF
-                                    com.bitchat.android.net.TorPreferenceManager.set(ctx, torMode.value)
-                                },
-                                label = { Text("tor off", fontFamily = FontFamily.Monospace) }
-                            )
-                            FilterChip(
-                                selected = torMode.value == com.bitchat.android.net.TorMode.ON,
-                                onClick = {
-                                    torMode.value = com.bitchat.android.net.TorMode.ON
-                                    com.bitchat.android.net.TorPreferenceManager.set(ctx, torMode.value)
-                                },
-                                label = { 
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("tor on", fontFamily = FontFamily.Monospace)
-                                        // Status indicator (red/orange/green) moved inside the "tor on" button
-                                        val statusColor = when {
-                                            torStatus.running && torStatus.bootstrapPercent < 100 -> Color(0xFFFF9500)
-                                            torStatus.running && torStatus.bootstrapPercent >= 100 -> if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D)
-                                            else -> Color.Red
-                                        }
-                                        Surface(
-                                            color = statusColor,
-                                            shape = RoundedCornerShape(50)
-                                        ) { Box(Modifier.size(8.dp)) }
-                                    }
-                                }
-                            )
-                        }
-                        Text(
-                            text = "route internet over tor for enhanced privacy.",
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-
-                        // Debug status (temporary)
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = "tor status: " +
-                                            (if (torStatus.running) "running" else "stopped") +
-                                            ", bootstrap=" + torStatus.bootstrapPercent + "%",
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = colorScheme.onSurface.copy(alpha = 0.75f)
-                                )
-                                val last = torStatus.lastLogLine
-                                if (last.isNotEmpty()) {
-                                    Text(
-                                        text = "last: " + last.take(160),
-                                        fontSize = 10.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = colorScheme.onSurface.copy(alpha = 0.6f)
+                                    ThemeChip(
+                                        label = stringResource(R.string.about_system),
+                                        selected = themePref.isSystem,
+                                        onClick = { com.bitchat.android.ui.theme.ThemePreferenceManager.set(context, com.bitchat.android.ui.theme.ThemePreference.System) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    ThemeChip(
+                                        label = stringResource(R.string.about_light),
+                                        selected = themePref.isLight,
+                                        onClick = { com.bitchat.android.ui.theme.ThemePreferenceManager.set(context, com.bitchat.android.ui.theme.ThemePreference.Light) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    ThemeChip(
+                                        label = stringResource(R.string.about_dark),
+                                        selected = themePref.isDark,
+                                        onClick = { com.bitchat.android.ui.theme.ThemePreferenceManager.set(context, com.bitchat.android.ui.theme.ThemePreference.Dark) },
+                                        modifier = Modifier.weight(1f)
                                     )
                                 }
                             }
                         }
                     }
-                }
-                
-                // Emergency warning
-                item {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = Color.Red.copy(alpha = 0.08f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Warning,
-                                contentDescription = "Warning",
-                                tint = Color(0xFFBF1A1A),
-                                modifier = Modifier.size(16.dp)
+
+                    // Settings Section - Unified Card with Toggles
+                    item(key = "settings") {
+                        LaunchedEffect(Unit) { PoWPreferenceManager.init(context) }
+                        val powEnabled by PoWPreferenceManager.powEnabled.collectAsState()
+                        val powDifficulty by PoWPreferenceManager.powDifficulty.collectAsState()
+                        var backgroundEnabled by remember { mutableStateOf(com.bitchat.android.service.MeshServicePreferences.isBackgroundEnabled(true)) }
+                        val torMode = remember { mutableStateOf(TorPreferenceManager.get(context)) }
+                        val torProvider = remember { ArtiTorManager.getInstance() }
+                        val torStatus by torProvider.statusFlow.collectAsState()
+                        val torAvailable = remember { torProvider.isTorAvailable() }
+
+                        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                            Text(
+                                text = "SETTINGS",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colorScheme.onBackground.copy(alpha = 0.5f),
+                                letterSpacing = 0.5.sp,
+                                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
                             )
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = colorScheme.surface,
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Column {
+                                    // Background Mode Toggle
+                                    SettingsToggleRow(
+                                        icon = Icons.Filled.Bluetooth,
+                                        title = stringResource(R.string.about_background_title),
+                                        subtitle = stringResource(R.string.about_background_desc),
+                                        checked = backgroundEnabled,
+                                        onCheckedChange = { enabled ->
+                                            backgroundEnabled = enabled
+                                            com.bitchat.android.service.MeshServicePreferences.setBackgroundEnabled(enabled)
+                                            if (!enabled) {
+                                                com.bitchat.android.service.MeshForegroundService.stop(context)
+                                            } else {
+                                                com.bitchat.android.service.MeshForegroundService.start(context)
+                                            }
+                                        }
+                                    )
+                                    
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 56.dp),
+                                        color = colorScheme.outline.copy(alpha = 0.12f)
+                                    )
+                                    
+                                    // Proof of Work Toggle
+                                    SettingsToggleRow(
+                                        icon = Icons.Filled.Speed,
+                                        title = stringResource(R.string.about_pow),
+                                        subtitle = stringResource(R.string.about_pow_tip),
+                                        checked = powEnabled,
+                                        onCheckedChange = { PoWPreferenceManager.setPowEnabled(it) }
+                                    )
+                                    
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 56.dp),
+                                        color = colorScheme.outline.copy(alpha = 0.12f)
+                                    )
+                                    
+                                    // Tor Toggle
+                                    SettingsToggleRow(
+                                        icon = Icons.Filled.Security,
+                                        title = "Tor Network",
+                                        subtitle = stringResource(R.string.about_tor_route),
+                                        checked = torMode.value == TorMode.ON,
+                                        onCheckedChange = { enabled ->
+                                            if (torAvailable) {
+                                                torMode.value = if (enabled) TorMode.ON else TorMode.OFF
+                                                TorPreferenceManager.set(context, torMode.value)
+                                            }
+                                        },
+                                        enabled = torAvailable,
+                                        statusIndicator = if (torMode.value == TorMode.ON) {
+                                            {
+                                                val statusColor = when {
+                                                    torStatus.running && torStatus.bootstrapPercent >= 100 -> if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D)
+                                                    torStatus.running -> Color(0xFFFF9500)
+                                                    else -> Color(0xFFFF3B30)
+                                                }
+                                                Surface(
+                                                    color = statusColor,
+                                                    shape = CircleShape,
+                                                    modifier = Modifier.size(8.dp)
+                                                ) {}
+                                            }
+                                        } else null
+                                    )
+                                }
+                            }
                             
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            // Tor unavailable hint
+                            if (!torAvailable) {
                                 Text(
-                                    text = "emergency data deletion",
+                                    text = stringResource(R.string.tor_not_available_in_this_build),
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color(0xFFBF1A1A)
-                                )
-                                
-                                Text(
-                                    text = "tip: triple-click the app title to emergency delete all stored data including messages, keys, and settings.",
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = colorScheme.onSurface.copy(alpha = 0.7f)
+                                    color = colorScheme.onBackground.copy(alpha = 0.5f),
+                                    modifier = Modifier.padding(start = 16.dp, top = 8.dp)
                                 )
                             }
                         }
                     }
-                }
-                
-                // Debug settings button
-                item {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Debug button styled to match the app aesthetic
-                        TextButton(
-                            onClick = { onShowDebug?.invoke() },
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
+
+                    // PoW Difficulty Slider (when enabled)
+                    item(key = "pow_slider") {
+                        val powEnabled by PoWPreferenceManager.powEnabled.collectAsState()
+                        val powDifficulty by PoWPreferenceManager.powDifficulty.collectAsState()
+                        
+                        if (powEnabled) {
+                            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = colorScheme.surface,
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Difficulty",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium,
+                                                color = colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = "$powDifficulty bits • ${NostrProofOfWork.estimateMiningTime(powDifficulty)}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = colorScheme.onSurface.copy(alpha = 0.6f)
+                                            )
+                                        }
+                                        
+                                        Slider(
+                                            value = powDifficulty.toFloat(),
+                                            onValueChange = { PoWPreferenceManager.setPowDifficulty(it.toInt()) },
+                                            valueRange = 0f..32f,
+                                            steps = 31,
+                                            colors = SliderDefaults.colors(
+                                                thumbColor = if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D),
+                                                activeTrackColor = if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D)
+                                            )
+                                        )
+                                        
+                                        Text(
+                                            text = when {
+                                                powDifficulty == 0 -> stringResource(R.string.about_pow_desc_none)
+                                                powDifficulty <= 8 -> stringResource(R.string.about_pow_desc_very_low)
+                                                powDifficulty <= 12 -> stringResource(R.string.about_pow_desc_low)
+                                                powDifficulty <= 16 -> stringResource(R.string.about_pow_desc_medium)
+                                                powDifficulty <= 20 -> stringResource(R.string.about_pow_desc_high)
+                                                powDifficulty <= 24 -> stringResource(R.string.about_pow_desc_very_high)
+                                                else -> stringResource(R.string.about_pow_desc_extreme)
+                                            },
+                                            fontSize = 12.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = colorScheme.onSurface.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Tor Status (when enabled)
+                    item(key = "tor_status") {
+                        val torMode = remember { mutableStateOf(TorPreferenceManager.get(context)) }
+                        val torProvider = remember { ArtiTorManager.getInstance() }
+                        val torStatus by torProvider.statusFlow.collectAsState()
+                        
+                        if (torMode.value == TorMode.ON) {
+                            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = colorScheme.surface,
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            val statusColor = when {
+                                                torStatus.running && torStatus.bootstrapPercent >= 100 -> if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D)
+                                                torStatus.running -> Color(0xFFFF9500)
+                                                else -> Color(0xFFFF3B30)
+                                            }
+                                            Surface(color = statusColor, shape = CircleShape, modifier = Modifier.size(10.dp)) {}
+                                            Text(
+                                                text = if (torStatus.running) "Connected (${torStatus.bootstrapPercent}%)" else "Disconnected",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium,
+                                                color = colorScheme.onSurface
+                                            )
+                                        }
+                                        if (torStatus.lastLogLine.isNotEmpty()) {
+                                            Text(
+                                                text = torStatus.lastLogLine.take(120),
+                                                fontSize = 11.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = colorScheme.onSurface.copy(alpha = 0.5f),
+                                                maxLines = 2
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Emergency Warning
+                    item(key = "warning") {
+                        Surface(
+                            modifier = Modifier
+                                .padding(horizontal = 20.dp)
+                                .fillMaxWidth(),
+                            color = colorScheme.error.copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(16.dp)
                         ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Warning,
+                                    contentDescription = null,
+                                    tint = colorScheme.error,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = stringResource(R.string.about_emergency_title),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = colorScheme.error
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.about_emergency_tip),
+                                        fontSize = 13.sp,
+                                        color = colorScheme.onSurface.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Footer
+                    item(key = "footer") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            if (onShowDebug != null) {
+                                TextButton(onClick = onShowDebug) {
+                                    Text(
+                                        text = stringResource(R.string.about_debug_settings),
+                                        fontSize = 13.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = colorScheme.primary
+                                    )
+                                }
+                            }
                             Text(
-                                text = "debug settings",
-                                fontSize = 11.sp,
+                                text = stringResource(R.string.about_footer),
+                                fontSize = 12.sp,
                                 fontFamily = FontFamily.Monospace,
-                                color = colorScheme.onSurface.copy(alpha = 0.6f)
+                                color = colorScheme.onSurface.copy(alpha = 0.4f)
                             )
+                            Spacer(modifier = Modifier.height(20.dp))
                         }
                     }
                 }
 
-                // Version and footer space
-                item {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "open source • privacy first • decentralized",
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = colorScheme.onSurface.copy(alpha = 0.5f)
-                        )
-                        
-                        // Add extra space at bottom for gesture area
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
+                // TopBar
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(64.dp)
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = topBarAlpha))
+                ) {
+                    CloseButton(
+                        onClick = onDismiss,
+                        modifier = modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(horizontal = 16.dp),
+                    )
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun FeatureCard(
-    icon: ImageVector,
-    iconColor: Color,
-    title: String,
-    description: String,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.Top
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = iconColor,
-                modifier = Modifier.size(20.dp)
-            )
-            
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = title,
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                
-                Text(
-                    text = description,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                    lineHeight = 15.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun FeatureItem(text: String) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Text(
-            text = "•",
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-        )
-        
-        Text(
-            text = text,
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-            modifier = Modifier.weight(1f)
-        )
     }
 }
 
@@ -564,7 +701,7 @@ fun PasswordPromptDialog(
             onDismissRequest = onDismiss,
             title = {
                 Text(
-                    text = "Enter Channel Password",
+                    text = stringResource(R.string.pwd_prompt_title),
                     style = MaterialTheme.typography.titleMedium,
                     color = colorScheme.onSurface
                 )
@@ -572,7 +709,7 @@ fun PasswordPromptDialog(
             text = {
                 Column {
                     Text(
-                        text = "Channel $channelName is password protected. Enter the password to join.",
+                        text = stringResource(R.string.pwd_prompt_message, channelName ?: ""),
                         style = MaterialTheme.typography.bodyMedium,
                         color = colorScheme.onSurface
                     )
@@ -581,7 +718,7 @@ fun PasswordPromptDialog(
                     OutlinedTextField(
                         value = passwordInput,
                         onValueChange = onPasswordChange,
-                        label = { Text("Password", style = MaterialTheme.typography.bodyMedium) },
+                        label = { Text(stringResource(R.string.pwd_label), style = MaterialTheme.typography.bodyMedium) },
                         textStyle = MaterialTheme.typography.bodyMedium.copy(
                             fontFamily = FontFamily.Monospace
                         ),
@@ -595,7 +732,7 @@ fun PasswordPromptDialog(
             confirmButton = {
                 TextButton(onClick = onConfirm) {
                     Text(
-                        text = "Join",
+                        text = stringResource(R.string.join),
                         style = MaterialTheme.typography.bodyMedium,
                         color = colorScheme.primary
                     )
@@ -604,7 +741,7 @@ fun PasswordPromptDialog(
             dismissButton = {
                 TextButton(onClick = onDismiss) {
                     Text(
-                        text = "Cancel",
+                        text = stringResource(R.string.cancel),
                         style = MaterialTheme.typography.bodyMedium,
                         color = colorScheme.onSurface
                     )

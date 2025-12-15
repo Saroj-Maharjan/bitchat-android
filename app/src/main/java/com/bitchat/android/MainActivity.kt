@@ -3,7 +3,6 @@ package com.bitchat.android
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
-import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -15,7 +14,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.repeatOnLifecycle
@@ -25,6 +23,7 @@ import com.bitchat.android.onboarding.BluetoothCheckScreen
 import com.bitchat.android.onboarding.BluetoothStatus
 import com.bitchat.android.onboarding.BluetoothStatusManager
 import com.bitchat.android.onboarding.BatteryOptimizationManager
+import com.bitchat.android.onboarding.BatteryOptimizationPreferenceManager
 import com.bitchat.android.onboarding.BatteryOptimizationScreen
 import com.bitchat.android.onboarding.BatteryOptimizationStatus
 import com.bitchat.android.onboarding.InitializationErrorScreen
@@ -38,20 +37,21 @@ import com.bitchat.android.onboarding.PermissionExplanationScreen
 import com.bitchat.android.onboarding.PermissionManager
 import com.bitchat.android.ui.ChatScreen
 import com.bitchat.android.ui.ChatViewModel
+import com.bitchat.android.ui.OrientationAwareActivity
 import com.bitchat.android.ui.theme.BitchatTheme
 import com.bitchat.android.nostr.PoWPreferenceManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
-    
+class MainActivity : OrientationAwareActivity() {
+
     private lateinit var permissionManager: PermissionManager
     private lateinit var onboardingCoordinator: OnboardingCoordinator
     private lateinit var bluetoothStatusManager: BluetoothStatusManager
     private lateinit var locationStatusManager: LocationStatusManager
     private lateinit var batteryOptimizationManager: BatteryOptimizationManager
     
-    // Core mesh service - managed at app level
+    // Core mesh service - provided by the foreground service holder
     private lateinit var meshService: BluetoothMeshService
     private val mainViewModel: MainViewModel by viewModels()
     private val chatViewModel: ChatViewModel by viewModels { 
@@ -66,13 +66,21 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        // Check if this is a quit request from the notification
+        if (intent.getBooleanExtra("ACTION_QUIT_APP", false)) {
+            android.util.Log.d("MainActivity", "Quit request received in onCreate, finishing activity")
+            finish()
+            return
+        }
+        
         // Enable edge-to-edge display for modern Android look
         enableEdgeToEdge()
 
         // Initialize permission management
         permissionManager = PermissionManager(this)
-        // Initialize core mesh service first
-        meshService = BluetoothMeshService(this)
+        // Ensure foreground service is running and get mesh instance from holder
+        try { com.bitchat.android.service.MeshForegroundService.start(applicationContext) } catch (_: Exception) { }
+        meshService = com.bitchat.android.service.MeshServiceHolder.getOrCreate(applicationContext)
         bluetoothStatusManager = BluetoothStatusManager(
             activity = this,
             context = this,
@@ -163,7 +171,7 @@ class MainActivity : ComponentActivity() {
         }
 
         when (onboardingState) {
-            OnboardingState.CHECKING -> {
+            OnboardingState.PERMISSION_REQUESTING -> {
                 InitializingScreen(modifier)
             }
             
@@ -226,16 +234,8 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             }
-            
-            OnboardingState.PERMISSION_REQUESTING -> {
-                InitializingScreen(modifier)
-            }
-            
-            OnboardingState.INITIALIZING -> {
-                InitializingScreen(modifier)
-            }
-            
-            OnboardingState.COMPLETE -> {
+
+            OnboardingState.CHECKING, OnboardingState.INITIALIZING, OnboardingState.COMPLETE -> {
                 // Set up back navigation handling for the chat screen
                 val backCallback = object : OnBackPressedCallback(true) {
                     override fun handleOnBackPressed() {
@@ -533,6 +533,13 @@ class MainActivity : ComponentActivity() {
             return
         }
         
+        // Check if user has previously skipped battery optimization
+        if (BatteryOptimizationPreferenceManager.isSkipped(this)) {
+            android.util.Log.d("MainActivity", "User previously skipped battery optimization, proceeding to permissions")
+            proceedWithPermissionCheck()
+            return
+        }
+        
         // For existing users, check battery optimization status
         batteryOptimizationManager.logBatteryOptimizationStatus()
         val currentBatteryOptimizationStatus = when {
@@ -598,6 +605,9 @@ class MainActivity : ComponentActivity() {
                 PoWPreferenceManager.init(this@MainActivity)
                 Log.d("MainActivity", "PoW preferences initialized")
                 
+                // Initialize Location Notes Manager (extracted to separate file)
+                com.bitchat.android.nostr.LocationNotesInitializer.initialize(this@MainActivity)
+                
                 // Ensure all permissions are still granted (user might have revoked in settings)
                 if (!permissionManager.areAllPermissionsGranted()) {
                     val missing = permissionManager.getMissingPermissions()
@@ -628,6 +638,15 @@ class MainActivity : ComponentActivity() {
     
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
+        
+        // Check if this is a quit request from the notification
+        if (intent.getBooleanExtra("ACTION_QUIT_APP", false)) {
+            android.util.Log.d("MainActivity", "Quit request received, finishing activity")
+            finish()
+            return
+        }
+        
         // Handle notification intents when app is already running
         if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
             handleNotificationIntent(intent)
@@ -638,6 +657,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Check Bluetooth and Location status on resume and handle accordingly
         if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
+            // Reattach mesh delegate to new ChatViewModel instance after Activity recreation
+            try { meshService.delegate = chatViewModel } catch (_: Exception) { }
             // Set app foreground state
             meshService.connectionManager.setAppBackgroundState(false)
             chatViewModel.setAppBackgroundState(false)
@@ -663,13 +684,15 @@ class MainActivity : ComponentActivity() {
         }
     }
     
-     override fun onPause() {
+    override fun onPause() {
         super.onPause()
         // Only set background state if app is fully initialized
         if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
             // Set app background state
             meshService.connectionManager.setAppBackgroundState(true)
             chatViewModel.setAppBackgroundState(true)
+            // Detach UI delegate so the foreground service can own DM notifications while UI is closed
+            try { meshService.delegate = null } catch (_: Exception) { }
         }
     }
     
@@ -744,14 +767,6 @@ class MainActivity : ComponentActivity() {
             Log.w("MainActivity", "Error cleaning up location status manager: ${e.message}")
         }
         
-        // Stop mesh services if app was fully initialized
-        if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
-            try {
-                meshService.stopServices()
-                Log.d("MainActivity", "Mesh services stopped successfully")
-            } catch (e: Exception) {
-                Log.w("MainActivity", "Error stopping mesh services in onDestroy: ${e.message}")
-            }
-        }
+        // Do not stop mesh here; ForegroundService owns lifecycle for background reliability
     }
 }

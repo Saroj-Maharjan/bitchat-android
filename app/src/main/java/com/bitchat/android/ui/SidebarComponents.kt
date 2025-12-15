@@ -12,7 +12,6 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bitchat.android.ui.theme.BASE_FONT_SIZE
 
 
@@ -39,14 +39,14 @@ fun SidebarOverlay(
     val colorScheme = MaterialTheme.colorScheme
     val interactionSource = remember { MutableInteractionSource() }
 
-    val connectedPeers by viewModel.connectedPeers.observeAsState(emptyList())
-    val joinedChannels by viewModel.joinedChannels.observeAsState(emptyList())
-    val currentChannel by viewModel.currentChannel.observeAsState()
-    val selectedPrivatePeer by viewModel.selectedPrivateChatPeer.observeAsState()
-    val nickname by viewModel.nickname.observeAsState("")
-    val unreadChannelMessages by viewModel.unreadChannelMessages.observeAsState(emptyMap())
-    val peerNicknames by viewModel.peerNicknames.observeAsState(emptyMap())
-    val peerRSSI by viewModel.peerRSSI.observeAsState(emptyMap())
+    val connectedPeers by viewModel.connectedPeers.collectAsStateWithLifecycle()
+    val joinedChannels by viewModel.joinedChannels.collectAsStateWithLifecycle()
+    val currentChannel by viewModel.currentChannel.collectAsStateWithLifecycle()
+    val selectedPrivatePeer by viewModel.selectedPrivateChatPeer.collectAsStateWithLifecycle()
+    val nickname by viewModel.nickname.collectAsStateWithLifecycle()
+    val unreadChannelMessages by viewModel.unreadChannelMessages.collectAsStateWithLifecycle()
+    val peerNicknames by viewModel.peerNicknames.collectAsStateWithLifecycle()
+    val peerRSSI by viewModel.peerRSSI.collectAsStateWithLifecycle()
 
     Box(
         modifier = modifier
@@ -110,7 +110,7 @@ fun SidebarOverlay(
                     
                     // People section - switch between mesh and geohash lists (iOS-compatible)
                     item {
-                        val selectedLocationChannel by viewModel.selectedLocationChannel.observeAsState()
+                        val selectedLocationChannel by viewModel.selectedLocationChannel.collectAsState()
                         
                         when (selectedLocationChannel) {
                             is com.bitchat.android.geohash.ChannelID.Location -> {
@@ -237,7 +237,7 @@ fun ChannelsSection(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Leave channel",
+                        contentDescription = stringResource(com.bitchat.android.R.string.cd_leave_channel),
                         modifier = Modifier.size(14.dp),
                         tint = colorScheme.onSurface.copy(alpha = 0.5f)
                     )
@@ -291,10 +291,10 @@ fun PeopleSection(
         }
 
         // Observe reactive state for favorites and fingerprints
-        val hasUnreadPrivateMessages by viewModel.unreadPrivateMessages.observeAsState(emptySet())
-        val privateChats by viewModel.privateChats.observeAsState(emptyMap())
-        val favoritePeers by viewModel.favoritePeers.observeAsState(emptySet())
-        val peerFingerprints by viewModel.peerFingerprints.observeAsState(emptyMap())
+        val hasUnreadPrivateMessages by viewModel.unreadPrivateMessages.collectAsStateWithLifecycle()
+        val privateChats by viewModel.privateChats.collectAsStateWithLifecycle()
+        val favoritePeers by viewModel.favoritePeers.collectAsStateWithLifecycle()
+        val peerFingerprints by viewModel.peerFingerprints.collectAsStateWithLifecycle()
         
         // Reactive favorite computation for all peers
         val peerFavoriteStates = remember(favoritePeers, peerFingerprints, connectedPeers) {
@@ -384,7 +384,7 @@ fun PeopleSection(
             val (bName, _) = com.bitchat.android.ui.splitSuffix(displayName)
             val showHash = (baseNameCounts[bName] ?: 0) > 1
 
-            val directMap by viewModel.peerDirect.observeAsState(emptyMap())
+            val directMap by viewModel.peerDirect.collectAsStateWithLifecycle()
             val isDirectLive = directMap[peerID] ?: try { viewModel.meshService.getPeerInfo(peerID)?.isDirectConnection == true } catch (_: Exception) { false }
             PeerItem(
                 peerID = peerID,
@@ -552,7 +552,7 @@ private fun PeerItem(
             // Show mail icon for unread DMs (iOS orange)
             Icon(
                 imageVector = Icons.Filled.Email,
-                contentDescription = "Unread message",
+                contentDescription = stringResource(com.bitchat.android.R.string.cd_unread_message),
                 modifier = Modifier.size(16.dp),
                 tint = Color(0xFFFF9500) // iOS orange
             )
@@ -562,7 +562,7 @@ private fun PeerItem(
                 // Purple globe to indicate Nostr availability
                 Icon(
                     imageVector = Icons.Filled.Public,
-                    contentDescription = "Reachable via Nostr",
+                    contentDescription = stringResource(com.bitchat.android.R.string.cd_reachable_via_nostr),
                     modifier = Modifier.size(16.dp),
                     tint = Color(0xFF9C27B0) // Purple
                 )
@@ -571,7 +571,7 @@ private fun PeerItem(
                 Icon(
                     //painter = androidx.compose.ui.res.painterResource(id = R.drawable.ic_offline_favorite),
                     imageVector = Icons.Outlined.Circle,
-                    contentDescription = "Offline favorite",
+                    contentDescription = stringResource(com.bitchat.android.R.string.cd_offline_favorite),
                     modifier = Modifier.size(16.dp),
                     tint = Color.Gray
                 )

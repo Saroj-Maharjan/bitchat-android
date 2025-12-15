@@ -2,7 +2,6 @@ package com.bitchat.android.nostr
 
 import android.app.Application
 import android.util.Log
-import androidx.lifecycle.LiveData
 import com.bitchat.android.ui.ChatState
 import com.bitchat.android.ui.GeoPerson
 import java.util.Date
@@ -14,7 +13,8 @@ import java.util.Date
  */
 class GeohashRepository(
     private val application: Application,
-    private val state: ChatState
+    private val state: ChatState,
+    private val dataManager: com.bitchat.android.ui.DataManager
 ) {
     companion object { private const val TAG = "GeohashRepository" }
 
@@ -103,14 +103,15 @@ class GeohashRepository(
             val e = it.next()
             if (e.value.before(cutoff)) it.remove()
         }
-        return participants.size
+        // exclude blocked users
+        return participants.keys.count { !dataManager.isGeohashUserBlocked(it) }
     }
 
     fun refreshGeohashPeople() {
         val geohash = currentGeohash
         if (geohash == null) {
             // Use postValue for thread safety - this can be called from background threads
-            state.postGeohashPeople(emptyList())
+            state.setGeohashPeople(emptyList())
             return
         }
         val cutoff = Date(System.currentTimeMillis() - 5 * 60 * 1000)
@@ -122,8 +123,18 @@ class GeohashRepository(
             if (e.value.before(cutoff)) it.remove()
         }
         geohashParticipants[geohash] = participants
-        val people = participants.map { (pubkeyHex, lastSeen) ->
-            val base = getCachedNickname(pubkeyHex) ?: "anon"
+        // exclude blocked users from people list
+        val people = participants.filterKeys { !dataManager.isGeohashUserBlocked(it) }
+            .map { (pubkeyHex, lastSeen) ->
+            // Use our actual nickname for self; otherwise use cached nickname or anon
+            val base = try {
+                val myHex = currentGeohash?.let { NostrIdentityBridge.deriveIdentity(it, application).publicKeyHex }
+                if (myHex != null && myHex.equals(pubkeyHex, true)) {
+                    state.getNicknameValue() ?: "anon"
+                } else {
+                    getCachedNickname(pubkeyHex) ?: "anon"
+                }
+            } catch (_: Exception) { getCachedNickname(pubkeyHex) ?: "anon" }
             GeoPerson(
                 id = pubkeyHex.lowercase(),
                 displayName = base, // UI can add #hash if necessary
@@ -131,18 +142,19 @@ class GeohashRepository(
             )
         }.sortedByDescending { it.lastSeen }
         // Use postValue for thread safety - this can be called from background threads
-        state.postGeohashPeople(people)
+        state.setGeohashPeople(people)
     }
 
     fun updateReactiveParticipantCounts() {
         val cutoff = Date(System.currentTimeMillis() - 5 * 60 * 1000)
         val counts = mutableMapOf<String, Int>()
         for ((gh, participants) in geohashParticipants) {
-            val active = participants.values.count { !it.before(cutoff) }
+            val active = participants.filterKeys { !dataManager.isGeohashUserBlocked(it) }
+                .values.count { !it.before(cutoff) }
             counts[gh] = active
         }
         // Use postValue for thread safety - this can be called from background threads  
-        state.postGeohashParticipantCounts(counts)
+        state.setGeohashParticipantCounts(counts)
     }
 
     fun putNostrKeyMapping(tempKeyOrPeer: String, pubkeyHex: String) {
@@ -186,6 +198,7 @@ class GeohashRepository(
             val participants = geohashParticipants[current] ?: emptyMap()
             var count = 0
             for ((k, t) in participants) {
+                if (dataManager.isGeohashUserBlocked(k)) continue
                 if (t.before(cutoff)) continue
                 val name = if (k.equals(lower, true)) base else (geoNicknames[k.lowercase()] ?: "anon")
                 if (name.equals(base, true)) { count++; if (count > 1) break }
@@ -207,6 +220,7 @@ class GeohashRepository(
             val participants = geohashParticipants[sourceGeohash] ?: emptyMap()
             var count = 0
             for ((k, t) in participants) {
+                if (dataManager.isGeohashUserBlocked(k)) continue
                 if (t.before(cutoff)) continue
                 val name = if (k.equals(lower, true)) base else (geoNicknames[k.lowercase()] ?: "anon")
                 if (name.equals(base, true)) { count++; if (count > 1) break }

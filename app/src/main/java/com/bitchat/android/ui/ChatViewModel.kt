@@ -4,11 +4,12 @@ import android.app.Application
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.LiveData
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.StateFlow
 import com.bitchat.android.mesh.BluetoothMeshDelegate
 import com.bitchat.android.mesh.BluetoothMeshService
 import com.bitchat.android.model.BitchatMessage
+import com.bitchat.android.model.BitchatMessageType
 import com.bitchat.android.protocol.BitchatPacket
 
 
@@ -33,21 +34,39 @@ class ChatViewModel(
         private const val TAG = "ChatViewModel"
     }
 
-    // State management
-    private val state = ChatState()
-    
+    fun sendVoiceNote(toPeerIDOrNull: String?, channelOrNull: String?, filePath: String) {
+        mediaSendingManager.sendVoiceNote(toPeerIDOrNull, channelOrNull, filePath)
+    }
+
+    fun sendFileNote(toPeerIDOrNull: String?, channelOrNull: String?, filePath: String) {
+        mediaSendingManager.sendFileNote(toPeerIDOrNull, channelOrNull, filePath)
+    }
+
+    fun sendImageNote(toPeerIDOrNull: String?, channelOrNull: String?, filePath: String) {
+        mediaSendingManager.sendImageNote(toPeerIDOrNull, channelOrNull, filePath)
+    }
+
+    // MARK: - State management
+    private val state = ChatState(
+        scope = viewModelScope,
+    )
+
+    // Transfer progress tracking
+    private val transferMessageMap = mutableMapOf<String, String>()
+    private val messageTransferMap = mutableMapOf<String, String>()
+
     // Specialized managers
     private val dataManager = DataManager(application.applicationContext)
     private val messageManager = MessageManager(state)
     private val channelManager = ChannelManager(state, messageManager, dataManager, viewModelScope)
-    
+
     // Create Noise session delegate for clean dependency injection
     private val noiseSessionDelegate = object : NoiseSessionDelegate {
         override fun hasEstablishedSession(peerID: String): Boolean = meshService.hasEstablishedSession(peerID)
-        override fun initiateHandshake(peerID: String) = meshService.initiateNoiseHandshake(peerID) 
+        override fun initiateHandshake(peerID: String) = meshService.initiateNoiseHandshake(peerID)
         override fun getMyPeerID(): String = meshService.myPeerID
     }
-    
+
     val privateChatManager = PrivateChatManager(state, messageManager, dataManager, noiseSessionDelegate)
     private val commandProcessor = CommandProcessor(state, messageManager, channelManager, privateChatManager)
     private val notificationManager = NotificationManager(
@@ -55,6 +74,9 @@ class ChatViewModel(
       NotificationManagerCompat.from(application.applicationContext),
       NotificationIntervalManager()
     )
+
+    // Media file sending manager
+    private val mediaSendingManager = MediaSendingManager(state, messageManager, channelManager, meshService)
     
     // Delegate handler for mesh callbacks
     private val meshDelegateHandler = MeshDelegateHandler(
@@ -83,44 +105,92 @@ class ChatViewModel(
 
 
 
-    // Expose state through LiveData (maintaining the same interface)
-    val messages: LiveData<List<BitchatMessage>> = state.messages
-    val connectedPeers: LiveData<List<String>> = state.connectedPeers
-    val nickname: LiveData<String> = state.nickname
-    val isConnected: LiveData<Boolean> = state.isConnected
-    val privateChats: LiveData<Map<String, List<BitchatMessage>>> = state.privateChats
-    val selectedPrivateChatPeer: LiveData<String?> = state.selectedPrivateChatPeer
-    val unreadPrivateMessages: LiveData<Set<String>> = state.unreadPrivateMessages
-    val joinedChannels: LiveData<Set<String>> = state.joinedChannels
-    val currentChannel: LiveData<String?> = state.currentChannel
-    val channelMessages: LiveData<Map<String, List<BitchatMessage>>> = state.channelMessages
-    val unreadChannelMessages: LiveData<Map<String, Int>> = state.unreadChannelMessages
-    val passwordProtectedChannels: LiveData<Set<String>> = state.passwordProtectedChannels
-    val showPasswordPrompt: LiveData<Boolean> = state.showPasswordPrompt
-    val passwordPromptChannel: LiveData<String?> = state.passwordPromptChannel
-    val showSidebar: LiveData<Boolean> = state.showSidebar
+
+    val messages: StateFlow<List<BitchatMessage>> = state.messages
+    val connectedPeers: StateFlow<List<String>> = state.connectedPeers
+    val nickname: StateFlow<String> = state.nickname
+    val isConnected: StateFlow<Boolean> = state.isConnected
+    val privateChats: StateFlow<Map<String, List<BitchatMessage>>> = state.privateChats
+    val selectedPrivateChatPeer: StateFlow<String?> = state.selectedPrivateChatPeer
+    val unreadPrivateMessages: StateFlow<Set<String>> = state.unreadPrivateMessages
+    val joinedChannels: StateFlow<Set<String>> = state.joinedChannels
+    val currentChannel: StateFlow<String?> = state.currentChannel
+    val channelMessages: StateFlow<Map<String, List<BitchatMessage>>> = state.channelMessages
+    val unreadChannelMessages: StateFlow<Map<String, Int>> = state.unreadChannelMessages
+    val passwordProtectedChannels: StateFlow<Set<String>> = state.passwordProtectedChannels
+    val showPasswordPrompt: StateFlow<Boolean> = state.showPasswordPrompt
+    val passwordPromptChannel: StateFlow<String?> = state.passwordPromptChannel
+    val showSidebar: StateFlow<Boolean> = state.showSidebar
     val hasUnreadChannels = state.hasUnreadChannels
     val hasUnreadPrivateMessages = state.hasUnreadPrivateMessages
-    val showCommandSuggestions: LiveData<Boolean> = state.showCommandSuggestions
-    val commandSuggestions: LiveData<List<CommandSuggestion>> = state.commandSuggestions
-    val showMentionSuggestions: LiveData<Boolean> = state.showMentionSuggestions
-    val mentionSuggestions: LiveData<List<String>> = state.mentionSuggestions
-    val favoritePeers: LiveData<Set<String>> = state.favoritePeers
-    val peerSessionStates: LiveData<Map<String, String>> = state.peerSessionStates
-    val peerFingerprints: LiveData<Map<String, String>> = state.peerFingerprints
-    val peerNicknames: LiveData<Map<String, String>> = state.peerNicknames
-    val peerRSSI: LiveData<Map<String, Int>> = state.peerRSSI
-    val peerDirect: LiveData<Map<String, Boolean>> = state.peerDirect
-    val showAppInfo: LiveData<Boolean> = state.showAppInfo
-    val selectedLocationChannel: LiveData<com.bitchat.android.geohash.ChannelID?> = state.selectedLocationChannel
-    val isTeleported: LiveData<Boolean> = state.isTeleported
-    val geohashPeople: LiveData<List<GeoPerson>> = state.geohashPeople
-    val teleportedGeo: LiveData<Set<String>> = state.teleportedGeo
-    val geohashParticipantCounts: LiveData<Map<String, Int>> = state.geohashParticipantCounts
+    val showCommandSuggestions: StateFlow<Boolean> = state.showCommandSuggestions
+    val commandSuggestions: StateFlow<List<CommandSuggestion>> = state.commandSuggestions
+    val showMentionSuggestions: StateFlow<Boolean> = state.showMentionSuggestions
+    val mentionSuggestions: StateFlow<List<String>> = state.mentionSuggestions
+    val favoritePeers: StateFlow<Set<String>> = state.favoritePeers
+    val peerSessionStates: StateFlow<Map<String, String>> = state.peerSessionStates
+    val peerFingerprints: StateFlow<Map<String, String>> = state.peerFingerprints
+    val peerNicknames: StateFlow<Map<String, String>> = state.peerNicknames
+    val peerRSSI: StateFlow<Map<String, Int>> = state.peerRSSI
+    val peerDirect: StateFlow<Map<String, Boolean>> = state.peerDirect
+    val showAppInfo: StateFlow<Boolean> = state.showAppInfo
+    val selectedLocationChannel: StateFlow<com.bitchat.android.geohash.ChannelID?> = state.selectedLocationChannel
+    val isTeleported: StateFlow<Boolean> = state.isTeleported
+    val geohashPeople: StateFlow<List<GeoPerson>> = state.geohashPeople
+    val teleportedGeo: StateFlow<Set<String>> = state.teleportedGeo
+    val geohashParticipantCounts: StateFlow<Map<String, Int>> = state.geohashParticipantCounts
 
     init {
         // Note: Mesh service delegate is now set by MainActivity
         loadAndInitialize()
+        // Hydrate UI state from process-wide AppStateStore to survive Activity recreation
+        viewModelScope.launch {
+            try { com.bitchat.android.services.AppStateStore.peers.collect { peers ->
+                state.setConnectedPeers(peers)
+                state.setIsConnected(peers.isNotEmpty())
+            } } catch (_: Exception) { }
+        }
+        viewModelScope.launch {
+            try { com.bitchat.android.services.AppStateStore.publicMessages.collect { msgs ->
+                // Source of truth is AppStateStore; replace to avoid duplicate keys in LazyColumn
+                state.setMessages(msgs)
+            } } catch (_: Exception) { }
+        }
+        viewModelScope.launch {
+            try { com.bitchat.android.services.AppStateStore.privateMessages.collect { byPeer ->
+                // Replace with store snapshot
+                state.setPrivateChats(byPeer)
+                // Recompute unread set using SeenMessageStore for robustness across Activity recreation
+                try {
+                    val seen = com.bitchat.android.services.SeenMessageStore.getInstance(getApplication())
+                    val myNick = state.getNicknameValue() ?: meshService.myPeerID
+                    val unread = mutableSetOf<String>()
+                    byPeer.forEach { (peer, list) ->
+                        if (list.any { msg -> msg.sender != myNick && !seen.hasRead(msg.id) }) unread.add(peer)
+                    }
+                    state.setUnreadPrivateMessages(unread)
+                } catch (_: Exception) { }
+            } } catch (_: Exception) { }
+        }
+        viewModelScope.launch {
+            try { com.bitchat.android.services.AppStateStore.channelMessages.collect { byChannel ->
+                // Replace with store snapshot
+                state.setChannelMessages(byChannel)
+            } } catch (_: Exception) { }
+        }
+        // Subscribe to BLE transfer progress and reflect in message deliveryStatus
+        viewModelScope.launch {
+            com.bitchat.android.mesh.TransferProgressManager.events.collect { evt ->
+                mediaSendingManager.handleTransferProgressEvent(evt)
+            }
+        }
+        
+        // Removed background location notes subscription. Notes now load only when sheet opens.
+    }
+
+    fun cancelMediaSend(messageId: String) {
+        // Delegate to MediaSendingManager which tracks transfer IDs and cleans up UI state
+        mediaSendingManager.cancelMediaSend(messageId)
     }
     
     private fun loadAndInitialize() {
@@ -185,20 +255,8 @@ class ChatViewModel(
         } catch (_: Exception) { }
 
         // Note: Mesh service is now started by MainActivity
-        
-        // Show welcome message if no peers after delay
-        viewModelScope.launch {
-            delay(10000)
-            if (state.getConnectedPeersValue().isEmpty() && state.getMessagesValue().isEmpty()) {
-                val welcomeMessage = BitchatMessage(
-                    sender = "system",
-                    content = "get people around you to download bitchat and chat with them here!",
-                    timestamp = Date(),
-                    isRelay = false
-                )
-                messageManager.addMessage(welcomeMessage)
-            }
-        }
+
+        // BLE receives are inserted by MessageHandler path; no VoiceNoteBus for Tor in this branch.
     }
     
     override fun onCleared() {
@@ -544,7 +602,7 @@ class ChatViewModel(
     
     private fun logCurrentFavoriteState() {
         Log.i("ChatViewModel", "=== CURRENT FAVORITE STATE ===")
-        Log.i("ChatViewModel", "LiveData favorite peers: ${favoritePeers.value}")
+        Log.i("ChatViewModel", "StateFlow favorite peers: ${favoritePeers.value}")
         Log.i("ChatViewModel", "DataManager favorite peers: ${dataManager.favoritePeers}")
         Log.i("ChatViewModel", "Peer fingerprints: ${privateChatManager.getAllPeerFingerprints()}")
         Log.i("ChatViewModel", "==============================")
@@ -561,6 +619,8 @@ class ChatViewModel(
             }
         }
     }
+    
+    // Location notes subscription management moved to LocationNotesViewModelExtensions.kt
     
     /**
      * Update reactive states for all connected peers (session states, fingerprints, nicknames, RSSI)
@@ -719,8 +779,14 @@ class ChatViewModel(
         // Clear all notifications
         notificationManager.clearAllNotifications()
         
-        // Clear Nostr/geohash state, keys, connections, and reinitialize from scratch
+        // Clear Nostr/geohash state, keys, connections, bookmarks, and reinitialize from scratch
         try {
+            // Clear geohash bookmarks too (panic should remove everything)
+            try {
+                val store = com.bitchat.android.geohash.GeohashBookmarksStore.getInstance(getApplication())
+                store.clearAll()
+            } catch (_: Exception) { }
+
             geohashViewModel.panicReset()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to reset Nostr/geohash: ${e.message}")

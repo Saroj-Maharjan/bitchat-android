@@ -42,12 +42,14 @@ object OkHttpProvider {
 
     private fun baseBuilderForCurrentProxy(): OkHttpClient.Builder {
         val builder = OkHttpClient.Builder()
-        val socks: InetSocketAddress? = TorManager.currentSocksAddress()
-        if (socks != null && TorManager.isProxyEnabled()) {
+        val torProvider = ArtiTorManager.getInstance()
+        val socks: InetSocketAddress? = torProvider.currentSocksAddress()
+        // If a SOCKS address is defined, always use it. TorProvider sets this as soon as Tor mode is ON,
+        // even before bootstrap, to prevent any direct connections from occurring.
+        if (socks != null) {
             val proxy = Proxy(Proxy.Type.SOCKS, socks)
             builder.proxy(proxy)
         }
         return builder
     }
 }
-
